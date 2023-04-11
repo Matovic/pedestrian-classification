@@ -196,14 +196,13 @@ Initially, the training dataset contains 703 different pedestrians. We then have
 	<img src="./outputs/ped_look_update.png">
 </p>
 
-Final transformed data can be downloaded from [here](https://stubask-my.sharepoint.com/:u:/g/personal/xmatovice_stuba_sk/EbJaQifX48pEg9o0ZDGJ-ewB79fffZ8ATrQ1ylEZh3EbsQ?e=HlRs85):
+We made our pedestrian dataset with annotations from the PIE dataset with warped grayscale images with dimensions 64x64. Final transformed data can be downloaded from [here](https://stubask-my.sharepoint.com/:u:/g/personal/xmatovice_stuba_sk/EbJaQifX48pEg9o0ZDGJ-ewB79fffZ8ATrQ1ylEZh3EbsQ?e=HlRs85):
  <p align="center">
 	<img src="./outputs/input.png">
 </p>
 
 ### 2. Data Preprocessing
-
-Based on [exploratory data analysis](./src/EDA.ipynb) test set does not have target variable price_range. We split our dataset into train-dev-test. We have train and test sets, but we split test set by half to dev-test sets. We will rougly have train-dev-test 80%-10%-10%.  
+The PIE dataset is split into six sets, where training data comprise set01, set02 and set04. Set05 and set06 made up validation data, and test data contain set03. We created our dataset class which gets items by their index and returns input data X, four target variables y_action, y_gender, y_look, y_cross and image index:
 
 ```python3
 class PIE_dataset(Dataset):
@@ -307,203 +306,471 @@ Best parameters from WandB:
  - learning rate: 0.05657808132757078
  - momentum: 0.7500727372948774
 
+Our convolutional neural network is defined with two convolutional layers, each followed by Leaky ReLU activations. After CNN layers, we have a pooling layer with kernel size 2x2 to get only max values. Six fully connected dense layers are followed after the polling layer. Each dense layer also has the same activation function as CNN layers, but we added dropout with a 20% likelihood to zeroed an element. In the end, the feed-forward pass returns four classes - standing or walking pedestrian, pedestrian's gender, pedestrian looking at the camera or not, and pedestrian crossing the road. 
+
+We use the Binary Cross Entropy Loss function with a Sigmoid layer for the first three binary classes. The last class is a multiclass prediction; therefore, we use the Cross-Entropy Loss function with logSoftMax. Stochastic Gradient Descent with Momentum is used as an optimization algorithm.
+
 ```python3
-class MLP(nn.Module):
-    """ 
-    Model class.
-    :param Module from torch.nn
+class CNN(nn.Module):
     """
-    def __init__(self, n_inputs: int, n_classes: int, lr: float, hidden_size: float) -> None:
+    Model class
+    """
+    def __init__(self, n_channels, n_features) -> None:
         """
-        Model elements init.
+        init
+        :param n_channels: number of input challens
         """
-        super(MLP, self).__init__()
-        self.n_inputs = n_inputs
-        self.n_classes = n_classes
-        self.lr = lr
-        self.hidden_size = hidden_size
-    
-        self.dense1 = nn.Linear(n_inputs, self.hidden_size)
-        self.dense2 = nn.Linear(self.hidden_size, self.hidden_size)
-        self.dense3 = nn.Linear(self.hidden_size, self.hidden_size)
-        self.dense4 = nn.Linear(self.hidden_size, self.hidden_size)
-        self.dense5 = nn.Linear(self.hidden_size, self.hidden_size)
-        self.dense6 = nn.Linear(self.hidden_size, self.n_classes)
-        self.relu = nn.ReLU()
-        self.droput = nn.Dropout(p=0.05)
- 
-    def forward(self, X:torch.Tensor) -> torch.Tensor:
-        """
-        Feed forward
-        """
-        # input to first hidden layer
-        output = self.dense1(X)
-        output = self.relu(output)
-        output = self.droput(output)
-        
-        output = self.dense2(output)
-        output = self.relu(output)
-        output = self.droput(output)
+        super(CNN, self).__init__()
+        self.n_channels = n_channels
+        self.n_features = n_features
 
-        output = self.dense3(output)
-        output = self.relu(output)
-        output = self.droput(output)
-        
-        output = self.dense4(output)
-        output = self.relu(output)
-        output = self.droput(output)
-        
-        output = self.dense5(output)
-        output = self.relu(output)
-        output = self.droput(output)
+        self.conv11 = nn.Conv2d(in_channels=n_channels, out_channels=64, 
+                             kernel_size=(3, 3), padding=0, dilation=2)
+        self.conv12 = nn.Conv2d(in_channels=64, out_channels=64,
+			    kernel_size=(3, 3), padding=0)
+        self.maxpool = nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2))
 
-        # final layer and output
-        output = self.dense6(output)
+        # MLP
+        self.fc1 = nn.Linear(in_features=53824, out_features=n_features)
+        self.relu = nn.LeakyReLU()
+        self.dropout = nn.Dropout(p=0.2)
 
-        return output
+        self.fc2 = nn.Linear(in_features=n_features, out_features=n_features)
+        self.fc3 = nn.Linear(in_features=n_features, out_features=n_features)
+        self.fc4 = nn.Linear(in_features=n_features, out_features=2*128)
+        self.fc5 = nn.Linear(in_features=2*128, out_features=2*128)
+
+        self.fc_action = nn.Linear(2*128, 1)      # output action class
+        self.fc_gender = nn.Linear(2*128, 1)      # output gesture class
+        self.fc_look = nn.Linear(2*128, 1)        # output look class
+        self.fc_cross = nn.Linear(2*128, 3)       # output cross class
+
+        self.logSoftmax = nn.LogSoftmax(dim=1)
+        self.BCELoss = nn.BCEWithLogitsLoss() 
+
+
+    def forward(self, x) -> dict:        
+        """
+        forward pass
+        :param x: data x
+        """
+        output = self.conv11(x)
+        output = self.relu(output)
+        output = self.conv12(output)
+        output = self.relu(output)
+        output = self.maxpool(output)
+
+		# flatten the output from the previous layer 
+        output = flatten(output, 1)
+        output = self.fc1(output)
+        output = self.relu(output)
+        output = self.dropout(output)
+		
+        output = self.fc2(output)
+        output = self.relu(output)
+        output = self.dropout(output)
+
+        output = self.fc3(output)
+        output = self.relu(output)
+        output = self.dropout(output)
+
+        output = self.fc4(output)
+        output = self.relu(output)
+        output = self.dropout(output)
+
+        output = self.fc5(output)
+        output = self.relu(output)
+        output = self.dropout(output)
+
+        # pass output to 4 different layers to get 4 classes
+        label_action = self.fc_action(output)
+        label_gender = self.fc_gender(output) # torch.sigmoid(self.fc2(X))  
+        label_look = self.fc_look(output)
+        label_cross = self.fc_cross(output)
+        
+        # return 4 classes
+        return {'label_action': label_action,
+                'label_gender': label_gender,
+                'label_look': label_look,
+                'label_cross': label_cross}
+
+model = CNN(
+    n_channels=n_channels, 
+    n_features=n_features
+) 
+model.to(device)
+
+opt = optim.SGD(model.parameters(), lr=INIT_LR, momentum=MOMENTUM)
+lossFn = nn.CrossEntropyLoss()
 ```
 
 ### 4. Training & validation
+Training and validation were done with early stopping monitoring validation loss.
 
 ```python3
+class EarlyStopper:
+    def __init__(self, patience=1, min_delta=0):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.min_validation_loss = np.inf
+
+    def early_stop(self, validation_loss):
+        if validation_loss < self.min_validation_loss:
+            self.min_validation_loss = validation_loss
+            self.counter = 0
+        elif validation_loss > (self.min_validation_loss + self.min_delta):
+            self.counter += 1
+            if self.counter >= self.patience:
+                return True
+        return False
+
+
 def accuracy_fn(y_true, y_pred):
     correct = torch.eq(y_true, y_pred).sum().item() 
     return correct
 
 
-def train_mlp(n_epochs, mlp, optimizer, loss_fn, 
-              train_dl, val_dl, device, batch_size):
+def val_cnn(val_dl, loss_fn, model, device):
+    """
+    Validation
+    """
+    # init epoch validation counters
+    epoch_train_accuracy_action, epoch_train_total_action, \
+        epoch_train_true_action, epoch_train_loss = 0, 0, 0, 0
+    
+    epoch_train_accuracy_gender, epoch_train_total_gender, \
+        epoch_train_true_gender = 0, 0, 0
+    
+    epoch_train_accuracy_look, epoch_train_total_look, \
+        epoch_train_true_look = 0, 0, 0
+    
+    epoch_train_accuracy_cross, epoch_train_total_cross, \
+        epoch_train_true_cross = 0, 0, 0
+    
+    # disable gradient calculation
+    with torch.no_grad():
+        # enumerate mini batches
+        for _, sample in enumerate(val_dl):
+            # get X and y with index from sample
+            X_batch, y_batch_action, y_batch_gender, \
+                y_batch_look, y_batch_cross, idx = sample['data'], sample['label_action'], \
+                    sample['label_gender'], sample['label_look'], sample['label_cross'], \
+                        sample['img_idx']
+            
+            X_batch, y_batch_action, y_batch_gender, y_batch_look, y_batch_cross = \
+                X_batch.to(device), y_batch_action.to(device), y_batch_gender.to(device), \
+                    y_batch_look.to(device), y_batch_cross.to(device)
+                     
+            # compute the model output
+            y_hat = model(X_batch)
+            y_action = y_hat['label_action']
+            y_gender = y_hat['label_gender']
+            y_look = y_hat['label_look']
+            y_cross = y_hat['label_cross']
+
+            y_cross_ = model.logSoftmax(y_cross) 
+            y_cross_1 = torch.argmax(y_cross_, dim=1).type(torch.LongTensor).to(device)       
+            _, y_action_ = torch.max(y_action, dim=1) 
+            _, y_gender_ = torch.max(y_gender, dim=1)
+            _, y_look_ = torch.max(y_look, dim=1)
+
+            #y_cross_1 = torch.argmax(y_cross)
+            loss_action = model.BCELoss(y_action, y_batch_action.unsqueeze(1))
+            loss_gender = model.BCELoss(y_gender, y_batch_gender.unsqueeze(1))
+            loss_look = model.BCELoss(y_look, y_batch_look.unsqueeze(1))
+            loss_cross = loss_fn(y_cross_, y_batch_cross)
+            
+            loss = loss_action + loss_gender + loss_look + loss_cross
+            
+            # update train counters
+            epoch_train_loss += loss.item()
+
+            epoch_train_true_action += accuracy_fn(y_action_, y_batch_action)
+            epoch_train_total_action += len(y_batch_action)
+
+            epoch_train_true_gender += accuracy_fn(y_gender_, y_batch_gender)
+            epoch_train_total_gender += len(y_batch_gender)
+
+            epoch_train_true_look += accuracy_fn(y_look_, y_batch_look)
+            epoch_train_total_look += len(y_batch_look)
+
+            epoch_train_true_cross += accuracy_fn(y_cross_1, y_batch_cross)
+            epoch_train_total_cross += len(y_batch_cross)
+
+        # update train accuracy & loss statistics
+        epoch_train_loss /= (len(val_dl.dataset)/val_dl.batch_size)
+        
+        epoch_train_accuracy_action = (epoch_train_true_action/epoch_train_total_action) * 100
+        epoch_train_accuracy_gesture = (epoch_train_true_gender/epoch_train_total_gender) * 100
+        epoch_train_accuracy_look = (epoch_train_true_look/epoch_train_total_look) * 100
+        epoch_train_accuracy_cross = (epoch_train_true_cross/epoch_train_total_cross) * 100
+
+    return epoch_train_loss, epoch_train_accuracy_action, epoch_train_accuracy_gesture, \
+        epoch_train_accuracy_look, epoch_train_accuracy_cross
+
+def train_cnn(train_dl:DataLoader, val_dl:DataLoader, n_epochs:int, optimizer: optim, model: nn.Module, loss_fn: nn.NLLLoss, device):
+    """
+    Training
+    """
     # init train lists for statistics
-    loss_train, accuracy_train = list(), list()
+    loss_train, acc_action_train, acc_gender_train, \
+        acc_look_train, acc_cross_train = list(), list(), list(), list(), list()
 
     # init validation lists for statistics
-    loss_validation, accuracy_validation = list(), list()
-
+    loss_val, acc_action_val, acc_gender_val, \
+        acc_look_val, acc_cross_val = list(), list(), list(), list(), list()
+    
+    early_stopper = EarlyStopper(patience=3, min_delta=1)    
     # enumerate epochs
     for epoch in range(n_epochs):
         # init epoch train counters
-        epoch_train_accuracy, epoch_train_total, epoch_train_true, epoch_train_loss = 0, 0, 0, 0
-
-        # init epoch validation counters
-        epoch_validation_accuracy, epoch_validation_total, \
-            epoch_validation_true, epoch_validation_loss = 0, 0, 0, 0
+        epoch_train_accuracy_action, epoch_train_total_action, \
+            epoch_train_true_action, epoch_train_loss = 0, 0, 0, 0
+        
+        epoch_train_accuracy_gender, epoch_train_total_gender, \
+            epoch_train_true_gender = 0, 0, 0
+        
+        epoch_train_accuracy_look, epoch_train_total_look, \
+            epoch_train_true_look = 0, 0, 0
+        
+        epoch_train_accuracy_cross, epoch_train_total_cross, \
+            epoch_train_true_cross = 0, 0, 0
 
         # enumerate mini batches
-        for idx, (X_batch, y_batch) in enumerate(train_dl):
-            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+        for _, sample in enumerate(train_dl):
+            # get X and y with index from sample
+            X_batch, y_batch_action, y_batch_gender, \
+                y_batch_look, y_batch_cross, idx = sample['data'], sample['label_action'], \
+                    sample['label_gender'], sample['label_look'], sample['label_cross'], \
+                        sample['img_idx']
+            
+            X_batch, y_batch_action, y_batch_gender, y_batch_look, y_batch_cross = \
+                X_batch.to(device), y_batch_action.to(device), y_batch_gender.to(device), \
+                    y_batch_look.to(device), y_batch_cross.to(device)
+            
             # clear the gradients
             optimizer.zero_grad()
-            # Make prediction logits with model
-            y_logits = mlp(X_batch)
-            y_pred_probs = torch.softmax(y_logits, dim=1) 
-            # go from logits -> prediction probabilities -> prediction labels
-            y_pred = torch.argmax(y_pred_probs, dim=1) 
             
-            loss = loss_fn(y_logits, y_batch)
+            # compute the model output
+            y_hat = model(X_batch)
+            y_action = y_hat['label_action']
+            y_gender = y_hat['label_gender']
+            y_look = y_hat['label_look']
+            y_cross = y_hat['label_cross']
+
+            y_cross_ = model.logSoftmax(y_cross) 
+            y_cross_1 = torch.argmax(y_cross_, dim=1).type(torch.LongTensor).to(device)
+            
+            _, y_action_ = torch.max(y_action, dim=1) #.round().int()
+            _, y_gender_ = torch.max(y_gender, dim=1) #.round().int()
+            _, y_look_ = torch.max(y_look, dim=1) #.round().int()
+            
+            loss_action = model.BCELoss(y_action, y_batch_action.unsqueeze(1))
+            loss_gender = model.BCELoss(y_gender, y_batch_gender.unsqueeze(1))
+            loss_look = model.BCELoss(y_look, y_batch_look.unsqueeze(1))
+            loss_cross = loss_fn(y_cross_, y_batch_cross)
+
+            loss = loss_action + loss_gender + loss_look + loss_cross
+            
             loss.backward()
-            # update model weights
+            
             optimizer.step()
 
             # update train counters
             epoch_train_loss += loss.item()
-            epoch_train_true += accuracy_fn(y_batch, y_pred)
-            epoch_train_total += len(y_batch)
-        
+
+            epoch_train_true_action += accuracy_fn(y_action_, y_batch_action)
+            epoch_train_total_action += len(y_batch_action)
+
+            epoch_train_true_gender += accuracy_fn(y_gender_, y_batch_gender)
+            epoch_train_total_gender += len(y_batch_gender)
+
+            epoch_train_true_look += accuracy_fn(y_look_, y_batch_look)
+            epoch_train_total_look += len(y_batch_look)
+
+            epoch_train_true_cross += accuracy_fn(y_cross_1, y_batch_cross)
+            epoch_train_total_cross += len(y_batch_cross)
+
         # update train accuracy & loss statistics
-        epoch_train_accuracy = (epoch_train_true/epoch_train_total) * 100
         epoch_train_loss /= (len(train_dl.dataset)/train_dl.batch_size)
-
-        # disable gradient calculation
-        with torch.no_grad():
-            for idx, (X_batch, y_batch) in enumerate(val_dl):
-                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-                # compute the models output
-                test_logits = mlp(X_batch)
-                test_pred = torch.softmax(test_logits, dim=1).argmax(dim=1)
-                # calculate loss
-                loss = loss_fn(test_logits, y_batch)
-
-                # update validation counters
-                epoch_validation_loss += loss.item()
-                epoch_validation_true += accuracy_fn(y_batch, test_pred)
-                epoch_validation_total += len(y_batch)
         
-        # update validation accuracy & loss statistics
-        epoch_validation_accuracy = (epoch_validation_true/epoch_validation_total) * 100
-        epoch_validation_loss /= (len(val_dl.dataset)/val_dl.batch_size)
-
-        # update global epochs statistics
+        epoch_train_accuracy_action = (epoch_train_true_action/epoch_train_total_action) * 100
+        epoch_train_accuracy_gender = (epoch_train_true_gender/epoch_train_total_gender) * 100
+        epoch_train_accuracy_look = (epoch_train_true_look/epoch_train_total_look) * 100
+        epoch_train_accuracy_cross = (epoch_train_true_cross/epoch_train_total_cross) * 100
+        
+        # validation
+        epoch_val_loss, epoch_val_acc_action, epoch_val_acc_gender, \
+            epoch_val_acc_look, epoch_val_acc_cross = val_cnn(val_dl=val_dl, 
+                                                              model=model, 
+                                                              loss_fn=loss_fn, 
+                                                              device=device)
+        
+        # update global train stats
         loss_train.append(epoch_train_loss)
-        accuracy_train.append(epoch_train_accuracy)
-        loss_validation.append(epoch_validation_loss)
-        accuracy_validation.append(epoch_validation_accuracy)
+        acc_action_train.append(epoch_train_accuracy_action)
+        acc_gender_train.append(epoch_train_accuracy_gender)
+        acc_look_train.append(epoch_train_accuracy_look)
+        acc_cross_train.append(epoch_train_accuracy_cross)
 
-        if epoch == (n_epochs - 1): 
+        # update global validation stats
+        loss_val.append(epoch_val_loss)
+        acc_action_val.append(epoch_val_acc_action) 
+        acc_gender_val.append(epoch_val_acc_gender)
+        acc_look_val.append(epoch_val_acc_look)
+        acc_cross_val.append(epoch_val_acc_cross)
+
+        # print
+        if epoch % 1 == 0: #== (n_epochs - 1):
             print(
                 f'Epoch {epoch}/{n_epochs}: \
                 train loss {loss_train[-1]}, \
-                validation loss {loss_validation[-1]}, \
-                train accuracy {accuracy_train[-1]}, \
-                validation accuracy {accuracy_validation[-1]}'
+                val loss {loss_val[-1]}, \
+                action train acc {acc_action_train[-1]}, \
+                gender train acc {acc_gender_train[-1]}, \
+                look train acc {acc_look_train[-1]}, \
+                cross train acc {acc_cross_train[-1]}, \
+                action val acc {acc_action_val[-1]}, \
+                gender val acc {acc_gender_val[-1]}, \
+                look val acc {acc_look_val[-1]}, \
+                cross val acc {acc_cross_val[-1]}'
             )
 
-    return loss_train, accuracy_train, loss_validation, accuracy_validation
+        # early stopping
+        if early_stopper.early_stop(epoch_val_loss):    
+            print(f'Early stopped at {epoch}')         
+            break
+        
+    return loss_train, acc_action_train, acc_gender_train, acc_look_train, \
+        acc_cross_train, loss_val, acc_action_val, acc_gender_val, \
+            acc_look_val, acc_cross_val
 ```
 
+Tracking training loss is done with Weights and Biases. Training loss is decreasing, signalling the model is learning on the training data.
 <p align="center">
-	<img src="./figures/validation_acc.png">
+	<img src="./outputs/train loss.png">
 </p>
 
-Loss accuracy vs validation accuracy from the exercise 6:
+Validation loss after a few epochs starts increasing until the early stopping. Meaning the model is overfitting on the training data.
 <p align="center">
-	<img src="./figures/loss_acc.png">
+	<img src="./figures/val loss.png">
 </p>
 
+Training and validation accuracy of pedestrian crossing classification:
+<p align="center">
+	<img src="./figures/cross train acc.png">
+	<img src="./figures/cross val acc.png">
+</p>
 
+Validation accuracy of pedestrian action classification:
+<p align="center">
+	<img src="./figures/action val acc.png">
+</p>
+
+Training and validation loss run with the best parameters.
+<p align="center">
+	<img src="./figures/train_val_loss.png">
+</p>
+
+Training and validation accuracy of pedestrian crossing classification. Run with the best parameters:
+<p align="center">
+	<img src="./figures/train_val_loss.png">
+</p>
 
 ### 5. Testing
 
 ```python3
-def evaluation(mlp, test_dl):
-    y_pred_all, y_test_all = list(), list()
-
-	# evaluate on test set
+def evaluation(model, test_dl):
+    """
+    evaluation
+    """    
+    y_test_all_action, y_test_all_gender, y_test_all_cross, y_test_all_look = list(), list(), list(), list()
+    y_all_action, y_all_gender, y_all_cross, y_all_look = list(), list(), list(), list()
+    # total_action, total_gesture, total_cross, total_look = 0, 0, 0, 0
+    correct_action, correct_gender, correct_cross, correct_look = 0, 0, 0, 0
+    # disable gradient calculation
     with torch.no_grad():
-        for X_batch, y_batch in test_dl:
-            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-            y_hat = mlp(X_batch)
-            test_pred = torch.softmax(y_hat, dim=1).argmax(dim=1)
-            epoch_validation_true += accuracy_fn(y_batch, test_pred)
+        # enumerate mini batches
+        for _, sample in enumerate(test_dl):
+            # get X and y with index from sample
+            X_batch, y_batch_action, y_batch_gender, \
+                y_batch_look, y_batch_cross, idx = sample['data'], sample['label_action'], \
+                    sample['label_gender'], sample['label_look'], sample['label_cross'], \
+                        sample['img_idx']
             
-            y_pred_all.extend(test_pred.cpu().numpy())
-            y_test_all.extend(y_batch.cpu().numpy())
-        epoch_validation_true = (epoch_validation_true / len(test_dl.dataset)) * 100
+            X_batch, y_batch_action, y_batch_gender, y_batch_look, y_batch_cross = \
+                X_batch.to(device), y_batch_action.to(device), y_batch_gender.to(device), \
+                    y_batch_look.to(device), y_batch_cross.to(device)
+                     
+            # compute the model output
+            # Make prediction logits with model
+            y_hat = model(X_batch)
+            y_action = y_hat['label_action']
+            y_gender = y_hat['label_gender']
+            y_look = y_hat['label_look']
+            y_cross = y_hat['label_cross']
+            
+            y_cross_ = model.logSoftmax(y_cross) 
+            true_cross_max = torch.argmax(y_cross_, dim=1)
 
-    print('acc:', epoch_validation_true)
-    report = classification_report(y_test_all, y_pred_all, target_names=['0', '1', '2', '3'], digits=4)
-    print(report)
+            _, y_action_ = torch.max(y_action, dim=1) #.round().int()
+            _, y_gender_ = torch.max(y_gender, dim=1) #.round().int()
+            _, y_look_ = torch.max(y_look, dim=1) #.round().int()
+            
+            # accuracies
+            true_action = accuracy_fn(y_action_, y_batch_action)
+            true_gender = accuracy_fn(y_gender_, y_batch_gender)
+            true_look = accuracy_fn(y_look_, y_batch_look)
+            true_cross = accuracy_fn(true_cross_max, y_batch_cross)
+        
+            # update predictions stats
+            y_all_action.extend(y_action_.cpu().numpy())
+            y_all_gender.extend(y_gender_.cpu().numpy())
+            y_all_look.extend(y_look_.cpu().numpy())
+            y_all_cross.extend(true_cross_max.cpu().numpy())
+
+            # update batch y stats
+            y_test_all_action.extend(y_batch_action.cpu().numpy())
+            y_test_all_gender.extend(y_batch_gender.cpu().numpy())
+            y_test_all_look.extend(y_batch_look.cpu().numpy())
+            y_test_all_cross.extend(y_batch_cross.cpu().numpy())
+
+            correct_action += true_action
+            correct_gender += true_gender
+            correct_look += true_look
+            correct_cross += true_cross
+            
+    report_action = classification_report(y_test_all_action, y_all_action, target_names=['0', '1'])
+    report_gender = classification_report(y_test_all_gender, y_all_gender, target_names=['0', '1'])
+    report_look = classification_report(y_test_all_look, y_all_look, target_names=['0', '1'])
+    report_cross = classification_report(y_test_all_cross, y_all_cross, target_names=['0', '1', '2'])
+
+    matrix_action = confusion_matrix(y_test_all_action, y_all_action)
+    matrix_gender = confusion_matrix(y_test_all_gender, y_all_gender)
+    matrix_look = confusion_matrix(y_test_all_look, y_all_look)
+    matrix_cross = confusion_matrix(y_test_all_cross, y_all_cross)
+    
+    matrix_action_display = ConfusionMatrixDisplay(matrix_action, display_labels=['0', '1'])
+    matrix_gender_display = ConfusionMatrixDisplay(matrix_gender, display_labels=['0', '1'])
+    matrix_look_display = ConfusionMatrixDisplay(matrix_look, display_labels=['0', '1'])
+    matrix_cross_display = ConfusionMatrixDisplay(matrix_cross, display_labels=['0', '1', '2'])
+
+    return report_action, report_gender, report_look, report_cross, \
+        matrix_action_display, matrix_gender_display, \
+            matrix_look_display, matrix_cross_display
 ```
 
 <p align="center">
-	<img src="./figures/classification_report.png">
+	<img src="./outputs/classification_action.png">
+	<img src="./outputs/classification_gender.png">
+	<img src="./outputs/classification_look.png">
+	<img src="./outputs/classification_cross.png">
 </p>
 
-<p align="center">
-	<img src="./figures/classification_report_tensor.png">
-</p>
-
-### 6. Classification
-Classification on unknown data.  
-```python3
-matrix = confusion_matrix(y_test_all, y_pred_all)
-matrix_display = ConfusionMatrixDisplay(matrix, display_labels=['0', '1', '2', '3'])
-matrix_display.plot(cmap='Blues')
-```
-
-<p align="center">
-	<img src="./figures/classification.png">
-</p>
 
 ## Conclusion
-Training was on the GPU using CUDA. 
+We have utilized our multi-output classification on the GPU using CUDA. However, the results are not satisfying. Our made-up dataset from the PIE dataset has various problems—imbalanced classes, possibly small images or unrecognizable pedestrians. We have tried to address the class imbalance. Nonetheless, we could not bring our dataset to equal balance because by balancing one label from one class, other labels from three classes emerged.   
+
+Validation loss after a few epochs always started increasing, and later it was stopped by an early stopping. Meaning our classifier began to be overfitted on the training data.
 
