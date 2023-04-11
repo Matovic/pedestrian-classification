@@ -654,28 +654,28 @@ Tracking training loss is done with Weights and Biases. Training loss is decreas
 
 Validation loss after a few epochs starts increasing until the early stopping. Meaning the model is overfitting on the training data.
 <p align="center">
-	<img src="./figures/val loss.png">
+	<img src="./outputs/val loss.png">
 </p>
 
 Training and validation accuracy of pedestrian crossing classification:
 <p align="center">
-	<img src="./figures/cross train acc.png">
-	<img src="./figures/cross val acc.png">
+	<img src="./outputs/cross train acc.png">
+	<img src="./outputs/cross val acc.png">
 </p>
 
 Validation accuracy of pedestrian action classification:
 <p align="center">
-	<img src="./figures/action val acc.png">
+	<img src="./outputs/action val acc.png">
 </p>
 
 Training and validation loss run with the best parameters.
 <p align="center">
-	<img src="./figures/train_val_loss.png">
+	<img src="./outputs/train_val_loss.png">
 </p>
 
 Training and validation accuracy of pedestrian crossing classification. Run with the best parameters:
 <p align="center">
-	<img src="./figures/train_val_loss.png">
+	<img src="./outputs/train_val_loss.png">
 </p>
 
 ### 5. Testing
