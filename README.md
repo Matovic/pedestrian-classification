@@ -675,7 +675,7 @@ Training and validation loss run with the best parameters.
 
 Training and validation accuracy of pedestrian crossing classification. Run with the best parameters:
 <p align="center">
-	<img src="./outputs/train_val_loss.png">
+	<img src="./outputs/train_val_acc_cross.png">
 </p>
 
 ### 5. Testing
