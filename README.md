@@ -774,3 +774,69 @@ We have utilized our multi-output classification on the GPU using CUDA. However,
 
 Validation loss after a few epochs always started increasing, and later it was stopped by an early stopping. Meaning our classifier began to be overfitted on the training data.
 
+## Changelog
+05.04.2023 - spravené 
+ - Exploratory Data Analysis 
+ - Rozframeovanie videí na snímky 
+    - Iba anotované snímky nakoľko celý dataset by mal cca 3TB 
+    - Vytiahnuté niekoľkých anotovaných snímok(zhruba 1000) nakoľko všetky frame-y majú cca 1TB 
+    - Vytiahnutie behaviorálnych anotácií chodcov z XML a spravenie CSV súboru z toho 
+        - Action - stojí alebo chodí, triedy 0-1 
+        - Gesture – pohyby rúk, hlavy alebo iné, triedy: 0-5 
+        - Look - pozerá sa do kamery alebo nie, triedy: 0,1 
+        - Cross – ide cez prechod alebo nie alebo je to irelvantné, triedy: 0,1,2 
+ - Načítanie datasetu a anotácií 
+ - Rozdelenie datasetu na trénovací, validačný a testovací 
+ - Návrh architektúry CNN 
+    - Inšpirácia VGG 
+ - PyTorch 
+
+05.04.2023 - TO DO 
+ - Moznosti riesenia:  
+    - pomocou regresiu  
+    - rozvetvenu siet a potom z nich dalsie mlp 
+    - mozno aj rezidualne bloky do siete 
+ - je potrebne predspracovanie obrazkov - padding, warp, upscaling 
+ - Mozno aj do grayscale, mozno aj augmentovat obrazky - pre zvacsenie datasetu 
+ - Vytiahnuť chodcov pomocou Boundig Boxov a tá časť obrázkov pôjde na vstup CNN a toho chodca budeme klasifikovať do tried action, gesture, look a cross 
+ - Tréning 
+ - Validácia 
+ - Testovanie 
+ - Early stopping 
+ - WandB 
+
+12.04.2023 - spravené 
+ - Rozbehanie WandB a vygenerovanie pdf report 
+ - EDA - dokončenie 
+    - Výber 4 finálnych tried kvôli nevyváženosti dátam 
+    - Pridanie grafov do dokumentácie 
+ - Data Transformation 
+    - Videa na frames 
+    - Rozdelenie frames na train-dev-test 
+    - Extrahovanie unikátnych chodcov zo snímok pomocou BBoxov, unikátnych preto, aby sme sa vyhli opakujúcim sa chodcom, pretože dáta sú z videí a obávali sme sa preučenia 
+    - Transformácia do grayscale 
+    - Warp chodcov na 64x64 
+ - Augmentácia dát 
+    - Naklonovanie a rotácia obrázkov tých tried, ktoré sú nevyvážené, to nám ale prinášalo imbalance aj do iných tried nakoľko jeden chodec má až 4 triedy a každá trieda ma niekoľko labels 
+ - Experimentovanie s hyperparametrami prostredníctvom WandB 
+    - Šírka dense layers  
+    - Batch size 
+    - Počet epôch 
+    - Learning rate 
+    - Momentum pre SGD optimalizátor 
+- Experimentovanie s architektúrou siete (VGG,ResNet) 
+    - Pridanie reziduálnych blokov 
+    - Pridanie, odstránenie skrytých vrstiev 
+- Pridanie šírky dense vrstvy 
+- Pridanie hĺbky 
+    - Dense – 6 vrstiev 
+    - CNN 64x64 -> Leaky Relu -> CNN 64x64 -> Leaky Relu -> Maxpool 2x 
+- Dropout na úrovni 0.20 
+- Pridanie early stopping 
+- Rozbehanie na najlepších parametroch 
+- Evaluácia 
+    - Classification report 
+    - Confusion matrix 
+- Klasifikácia chodca do 4 tried – viac-výstupný klasifikátor - chodec chodí/stojí, pohlavie chodca, pozeranie chodca do kamery a prechádzanie chodca cez cestu 
+- Binary Cross Entropy Loss function so Sigmoid layer pre binárne klasifikácie a Cross Entropy pre multi classification(cross trieda – crossing, not-crossing, crossing irrelevant) 
+- Zverejnený GitHub public repozitár s dokumentáciou prostredníctvom README
